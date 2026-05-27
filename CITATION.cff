@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use Protein Design Studio in your research, please cite it as below."
+type: software
+title: "Protein Design Studio"
+version: 0.4.0
+date-released: 2026-05-22
+url: "https://github.com/saner-spec/protein-design-studio"
+repository-code: "https://github.com/saner-spec/protein-design-studio"
+authors:
+  - family-names: "saner-spec"
+    given-names: "saner-spec"
+    orcid: ""
+abstract: "AI-guided protein mutation design tool. Load a PDB structure, click a residue, and ESM-2 scores all 20 amino acid substitutions. Built-in AI tutor (DeepSeek v4-pro) explains mutation effects. Features 3Dmol.js viewer, batch surface scanning with heatmaps, DSSP/Ramachandran analysis, multi-PDB comparison, experimental protocol generation, primer design, and ESM validation against ProTherm benchmarks."
+keywords:
+  - "protein design"
+  - "protein engineering"
+  - "mutation analysis"
+  - "ESM-2"
+  - "bioinformatics"
+  - "PDB"
+  - "structural biology"
+  - "ΔΔG prediction"
+license: MIT
