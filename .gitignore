@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ESM models (2.5GB — download via download_esm.py)
+data/esm_models/
+data/esm_models/checkpoints/
+
+# PDB cache (downloaded at runtime)
+data/pdb_cache/
+
+# Validation cache (ESM precomputed scores)
+data/validation_cache/
+
+# Server logs
+server.log
+*.log
+
+# Environment files (contains API keys)
+.env
+.env.local
+.env.production
+
+# Hermes agent metadata
+.hermes/
+
+# Docker volumes
+docker-data/
+
+# Test artifacts
+tmp_test.sh
+
+# Static PDBs (downloaded at runtime)
+static/pdbs/
+
+# User calibrations (private data)
+data/calibrations/
+
+# Knowledge cache (generated content)
+data/knowledge/

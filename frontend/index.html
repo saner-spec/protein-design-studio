@@ -1,0 +1,2033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Protein Design Studio</title>
+<script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+<script>
+// 3Dmol CDN 回退检测
+window.addEventListener('load', function() {
+  setTimeout(function() {
+    if (typeof $3Dmol === 'undefined') {
+      document.getElementById('viewer-3d').innerHTML =
+        '<div style="color:#e94560;text-align:center;padding:60px 20px;">' +
+        '<p style="font-size:18px;">⚠️ 3D 查看器加载失败</p>' +
+        '<p style="font-size:13px;color:#888;margin-top:12px;">无法连接到 3Dmol.org CDN<br>请检查网络连接后刷新页面</p>' +
+        '<p style="font-size:11px;color:#666;margin-top:12px;">离线环境可将 3Dmol-min.js 放到 frontend/ 目录</p>' +
+        '</div>';
+    }
+  }, 5000);
+});
+</script>
+<style>
+:root {
+  --bg-deep: #0f0f1a;
+  --bg-panel: #16162a;
+  --bg-card: #1c1c35;
+  --bg-input: #12122a;
+  --border: #252550;
+  --accent: #e94560;
+  --accent2: #00ccff;
+  --green: #00e676;
+  --yellow: #ffab40;
+  --text: #d0d0e0;
+  --text-dim: #707088;
+  --radius: 8px;
+  --radius-sm: 5px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  background: var(--bg-deep); color: var(--text);
+  height: 100vh; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+/* ── 顶部栏 ── */
+#header {
+  background: var(--bg-panel); padding: 10px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  z-index: 30; flex-shrink: 0;
+}
+#header h1 { font-size: 17px; font-weight: 700; color: var(--accent); letter-spacing: 0.5px; }
+#header .status { font-size: 12px; color: var(--text-dim); }
+#header .status .ok { color: var(--green); }
+#header .status .warn { color: var(--yellow); }
+
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── 3D 查看器 ── */
+#viewer-panel { flex: 1; position: relative; background: #000; min-width: 0; }
+#viewer-3d { width: 100%; height: 100%; }
+#viewer-controls {
+  position: absolute; top: 10px; left: 10px;
+  display: flex; flex-direction: column; gap: 5px; z-index: 10;
+}
+#viewer-controls button {
+  background: rgba(22,22,42,0.88); color: var(--text);
+  border: 1px solid var(--border); padding: 6px 12px;
+  font-size: 12px; cursor: pointer; border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px); transition: all 0.2s;
+}
+#viewer-controls button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+#viewer-controls button.active { border-color: var(--accent); color: var(--accent); background: rgba(233,69,96,0.12); }
+#pdb-input {
+  position: absolute; top: 10px; right: 10px; z-index: 10;
+  background: rgba(22,22,42,0.9); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 7px 12px; color: var(--text);
+  font-size: 12px; width: 160px; outline: none; transition: border-color 0.2s;
+}
+#pdb-input:focus { border-color: var(--accent); }
+
+/* ── 右侧面板 (核心修复) ── */
+#side-panel {
+  width: 420px; min-width: 420px; background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden; /* 整体不滚动，子区域各自滚动 */
+}
+/* 可滚动的内容区 (引导 + 残基 + 打分 + 设计) */
+#side-top {
+  flex-shrink: 0; /* 不压缩 */
+  overflow-y: auto;
+  max-height: 55%; /* 最多占55%，留空间给聊天 */
+}
+/* 聊天区 — 填满剩余空间 */
+#chat-panel {
+  flex: 1 1 0; /* 关键：可以收缩 */
+  min-height: 0; /* 关键：允许 flex 收缩到0 */
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+}
+#chat-messages {
+  flex: 1; overflow-y: auto; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+  scroll-behavior: smooth;
+}
+#chat-input-area {
+  display: flex; padding: 10px 14px; border-top: 1px solid var(--border);
+  gap: 8px; flex-shrink: 0; background: var(--bg-card);
+}
+#chat-input {
+  flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 9px 14px;
+  color: var(--text); font-size: 13px; outline: none;
+  transition: border-color 0.2s;
+}
+#chat-input:focus { border-color: var(--accent); }
+
+/* ── 通用面板卡片 ── */
+.side-card {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.side-card-header {
+  display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; user-select: none;
+}
+.side-card-title { font-size: 14px; font-weight: 600; }
+.side-card-body {
+  margin-top: 10px;
+  /* 在可展开面板中通过 JS 控制显示 */
+}
+
+/* ── 残基卡片 ── */
+#residue-card { min-height: 90px; }
+#residue-card .empty { color: var(--text-dim); font-style: italic; padding: 18px; text-align: center; }
+#residue-card .name { font-size: 22px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+#residue-card .info { font-size: 13px; line-height: 1.7; }
+#residue-card .info .label { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+#residue-card .surface {
+  display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; margin: 4px 0;
+}
+.surface-exposed { background: var(--accent); color: #fff; }
+.surface-buried { background: var(--border); color: var(--text-dim); }
+
+/* ── 打分面板 ── */
+#score-panel { }
+#score-panel .title { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+#score-list { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.score-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 8px; border-radius: var(--radius-sm); font-size: 12px;
+  cursor: pointer; border: 1px solid transparent; transition: all 0.15s;
+}
+.score-item:hover { border-color: var(--accent); transform: scale(1.03); background: rgba(233,69,96,0.15); }
+.score-good { background: rgba(0,255,136,0.15); }
+.score-neutral { background: rgba(255,255,255,0.06); }
+.score-bad { background: rgba(233,69,96,0.12); }
+.score-aa { font-weight: 700; font-family: monospace; font-size: 13px; }
+.score-val { font-family: monospace; font-size: 12px; color: #ccc; }
+
+/* ── 按钮 ── */
+.btn {
+  background: var(--accent); color: #fff; border: none;
+  padding: 8px 18px; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 13px; font-weight: 600; transition: all 0.2s;
+}
+.btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn-secondary {
+  background: transparent; border: 1px solid var(--accent); color: var(--accent);
+}
+.btn-secondary:hover { background: var(--accent); color: #fff; }
+.btn-xs {
+  padding: 5px 10px; font-size: 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+}
+.btn-xs:hover { border-color: var(--accent); color: var(--text); }
+
+/* ── 聊天消息 ── */
+.chat-msg {
+  font-size: 13px; line-height: 1.55; padding: 9px 14px;
+  border-radius: var(--radius); max-width: 92%;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.chat-msg.tutor { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); }
+.chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+
+/* ── 设计工作流 (可展开) ── */
+#design-panel { }
+#design-header {
+  padding: 10px 16px; background: var(--bg-card); cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+#design-header:hover { background: rgba(233,69,96,0.06); }
+#design-content {
+  padding: 10px 16px 14px; display: none;
+  max-height: 280px; overflow-y: auto; /* 内部滚动，不撑破布局 */
+}
+#aa-selector { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* ── 加载 ── */
+#loading {
+  display: none; position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+  z-index: 20; font-size: 17px; color: var(--accent);
+  backdrop-filter: blur(2px);
+}
+/* 简易 spinner */
+#loading::before {
+  content: ""; width: 28px; height: 28px; border: 3px solid rgba(233,69,96,0.25);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.7s linear infinite; margin-right: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 热图弹窗 ── */
+#heatmap-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.88); z-index: 100;
+  flex-direction: column; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+#heatmap-overlay.show { display: flex; }
+#heatmap-container {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px;
+  max-width: 95vw; max-height: 90vh; overflow: auto;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+#heatmap-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px; position: sticky; top: 0; background: var(--bg-panel); z-index: 5;
+}
+#heatmap-header h2 { font-size: 17px; color: var(--accent); }
+#heatmap-close {
+  background: none; border: 1px solid var(--accent); color: var(--accent);
+  padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: all 0.15s;
+}
+#heatmap-close:hover { background: var(--accent); color: #fff; }
+#heatmap-grid-wrapper { overflow: auto; max-height: 70vh; }
+#heatmap-grid { display: grid; gap: 1px; font-size: 10px; font-family: monospace; }
+.hm-cell {
+  aspect-ratio: 1; min-width: 24px; display: flex;
+  align-items: center; justify-content: center; cursor: pointer;
+  border-radius: 1px; transition: transform 0.15s; position: relative;
+}
+.hm-cell:hover { transform: scale(1.4); z-index: 10; outline: 1px solid #fff; }
+.hm-cell.wt { outline: 2px solid #fff; outline-offset: -1px; }
+.hm-col-header { text-align: center; color: var(--text-dim); font-weight: 600; padding: 2px 0; }
+.hm-row-header { text-align: right; color: var(--text-dim); padding-right: 6px; white-space: nowrap; font-size: 10px; }
+#heatmap-legend {
+  display: flex; align-items: center; gap: 10px; margin-top: 14px;
+  font-size: 11px; color: var(--text-dim); justify-content: center;
+}
+#heatmap-legend .gradient {
+  width: 200px; height: 10px; border-radius: 5px;
+  background: linear-gradient(to right, #00cc66 0%, #aacc00 25%, #eeeeee 50%, #ee8844 75%, #e94560 100%);
+}
+#heatmap-tooltip {
+  display: none; position: fixed; background: var(--bg-card); color: var(--text);
+  padding: 8px 14px; border-radius: var(--radius-sm); font-size: 12px; z-index: 200;
+  pointer-events: none; border: 1px solid var(--accent); white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+#heatmap-progress { text-align: center; color: var(--accent); padding: 60px 40px; font-size: 15px; }
+
+/* ── 引导面板 ── */
+#guide-panel { }
+.guide-step { color: var(--text); font-size: 12px; line-height: 2; }
+.guide-step b { color: var(--accent2); }
+
+/* ── 底部状态栏 ── */
+#footer {
+  background: var(--bg-panel); padding: 5px 20px; border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* ── 滚动条美化 ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+
+/* ── 移动端 ── */
+@media (max-width: 900px) {
+  #main { flex-direction: column; }
+  #viewer-panel { height: 45vh; flex: none; }
+  #side-panel { width: 100%; min-width: 0; max-height: 55vh; border-left: none; border-top: 1px solid var(--border); }
+  #side-top { max-height: 35%; }
+  #pdb-input { width: 120px; font-size: 10px; }
+  #viewer-controls button { font-size: 10px; padding: 4px 8px; }
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🧬 Protein Design Studio</h1>
+  <div class="status" id="header-status">
+    <span class="warn">⏳ 初始化中...</span>
+  </div>
+</div>
+<div id="protein-bar" style="background:var(--bg-card);padding:6px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:13px;flex-shrink:0;">
+  <span id="protein-label" style="color:var(--accent);font-weight:700;">—</span>
+  <span id="protein-title" style="color:var(--text-dim);">尚未加载蛋白质</span>
+</div>
+
+<div id="main">
+  <!-- 3D 查看器 -->
+  <div id="viewer-panel">
+    <div id="viewer-3d"></div>
+    <div id="viewer-controls">
+      <button id="btn-reset">↺ 重置视角</button>
+      <button id="btn-style-cartoon" class="active">🎨 卡通</button>
+      <button id="btn-style-surface">🔵 表面</button>
+      <button id="btn-color-chain" class="active">链着色</button>
+      <button id="btn-color-bfactor">B因子</button>
+      <button id="btn-scan-surface">🔍 扫描表面残基</button>
+      <button id="btn-export-csv" onclick="exportCSV()" style="background:rgba(15,52,96,0.8);color:#ccc;border:1px solid #0f3460;padding:6px 10px;font-size:12px;cursor:pointer;border-radius:4px;">📥 导出CSV</button>
+      <button id="btn-rama" onclick="showRamachandran()" style="background:rgba(15,52,96,0.8);color:#ccc;border:1px solid #0f3460;padding:6px 10px;font-size:12px;cursor:pointer;border-radius:4px;">🧬 拉氏图</button>
+      <button id="btn-validate" onclick="showValidation()" style="background:rgba(0,204,255,0.25);color:#00ccff;border:1px solid #00ccff;padding:6px 10px;font-size:12px;cursor:pointer;border-radius:4px;">🔬 验证ESM</button>
+    </div>
+    <input id="pdb-input" type="text" placeholder="输英文蛋白名 (GFP, lysozyme) 或 PDB ID (1EMA)" value="1EMA"
+           oninput="searchPDB()" autocomplete="off">
+    <div id="search-results" style="position:absolute; top:38px; right:8px; z-index:999; background:#16213e; border:1px solid #e94560; border-radius:4px; max-height:200px; overflow-y:auto; display:none; width:240px; box-shadow:0 4px 12px rgba(0,0,0,0.5);"></div>
+    <div style="position:absolute; top:38px; right:8px; display:flex; gap:4px; z-index:10; flex-wrap:wrap; max-width:250px;">
+      <button onclick="loadPDB('1EMA')" style="background:rgba(233,69,96,0.6);color:#fff;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" title="Aequorea victoria 绿色荧光蛋白">1EMA GFP</button>
+      <button onclick="loadPDB('1LZ1')" style="background:rgba(15,52,96,0.8);color:#ccc;border:1px solid #0f3460;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" title="Hen Egg-White Lysozyme 溶菌酶">1LZ1 溶菌酶</button>
+      <button onclick="loadPDB('1BNI')" style="background:rgba(15,52,96,0.8);color:#ccc;border:1px solid #0f3460;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" title="Bovine Ribonuclease A 核糖核酸酶A">1BNI RNA酶</button>
+      <button onclick="loadPDB('4HHB')" style="background:rgba(15,52,96,0.8);color:#ccc;border:1px solid #0f3460;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" title="Human Hemoglobin 血红蛋白 (4条链)">4HHB 血红蛋白</button>
+      <button onclick="comparePDBs()" style="background:rgba(233,69,96,0.8);color:#fff;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">🔬 对比</button>
+      <button onclick="loadKnowledge(false)" style="background:rgba(0,200,160,0.7);color:#fff;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">📚 知识</button>
+      <button onclick="downloadReport()" style="background:rgba(180,130,255,0.7);color:#fff;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">📄 报告</button>
+      <button onclick="loadKnowledge(true)" style="background:rgba(0,180,140,0.3);color:#0c8;border:1px solid #0c8;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px;" title="强制AI重新生成">📚+</button>
+    </div>
+    <div id="loading">⏳ 正在加载蛋白质结构...<br><small style="font-size:12px;color:#aaa;">多链结构 (如血红蛋白) 可能需要 30-60 秒</small></div>
+  </div>
+
+  <!-- 热图弹窗 -->
+  <div id="heatmap-overlay">
+    <div id="heatmap-container">
+      <div id="heatmap-header">
+        <h2>🔥 表面残基突变扫描热图</h2>
+        <button id="heatmap-close">✕ 关闭</button>
+      </div>
+      <div id="heatmap-grid-wrapper">
+        <div id="heatmap-progress">⏳ 正在扫描表面残基...<br><small style="color:#888;">这个操作需要 10-30 秒</small></div>
+        <div id="heatmap-grid"></div>
+      </div>
+      <div id="heatmap-legend">
+        <span style="color:#00cc66;">◼ 稳定化</span>
+        <div class="gradient"></div>
+        <span style="color:#e94560;">去稳定化 ◼</span>
+        <span style="margin-left:12px;">□ 白框 = 野生型</span>
+      </div>
+      <div id="heatmap-tooltip"></div>
+    </div>
+  </div>
+
+  <!-- 右侧面板 -->
+  <div id="side-panel">
+    <!-- 上部可滚动区 -->
+    <div id="side-top">
+
+    <!-- 新手引导 (首次加载显示) -->
+    <div id="guide-panel" style="padding:14px 16px; border-bottom:1px solid var(--border); background:var(--bg-card);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:14px; font-weight:700; color:var(--accent2);">📖 快速入门</span>
+        <button onclick="document.getElementById('guide-panel').style.display='none'" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px;">✕</button>
+      </div>
+      <div class="guide-step" style="margin-top:8px;">
+        <b>①</b> 在搜索框输入蛋白名（英文）或 PDB ID<br>
+        <b>②</b> 点击 3D 结构中的彩色部分 — <b>每个球 = 一个氨基酸残基</b><br>
+        <b>③</b> 右侧显示该位置详情 + 20种突变打分<br>
+        <b>④</b> <span style="color:var(--green);">绿色=稳定</span> · <span style="color:var(--accent);">红色=不稳定</span><br>
+        <b>⑤</b> 点击分数选目标氨基酸 → 设计引物<br>
+        <br><span style="color:var(--text-dim);">💡 点击上方快捷按钮加载示例蛋白试试！</span>
+      </div>
+    </div>
+
+    <!-- 残基卡片 -->
+    <div id="residue-card" class="side-card">
+      <div class="empty">👆 点击3D结构中的残基查看详情</div>
+    </div>
+
+    <!-- ESM 打分 -->
+    <div id="score-panel" class="side-card" style="display:none">
+      <div class="title">📊 ESM 突变打分 <span style="font-size:10px;color:var(--text-dim);font-weight:normal;">负值=稳定 · 正值=不稳定 · WT=野生型</span></div>
+      <div id="score-list"></div>
+      <div style="margin-top:8px; padding:8px 10px; background:rgba(255,171,64,0.1); border-left:3px solid var(--yellow); border-radius:3px; font-size:11px; color:var(--yellow); line-height:1.5;">
+        ⚠️ ESM-2 预测相关性约 0.4-0.6，仅供突变筛选参考。<br>最终必须通过实验验证（如热稳定性测定、圆二色谱）。
+      </div>
+    </div>
+
+    <!-- 序列设计工作流 (Phase 2) -->
+    <div id="design-panel" class="side-card" style="display:none;">
+      <div id="design-header" onclick="toggleDesignPanel()">
+        <span class="side-card-title" style="color:var(--accent);">🧬 序列设计工作流</span>
+        <span id="design-toggle" style="color:var(--text-dim); font-size:12px;">展开 ▾</span>
+      </div>
+      <div id="design-content">
+        <!-- 突变目标选择 -->
+        <div style="margin-bottom:8px;">
+          <label style="font-size:12px; color:var(--text-dim); display:block; margin-bottom:4px;">目标氨基酸</label>
+          <div id="aa-selector"></div>
+        </div>
+        <!-- 设计按钮 -->
+        <div style="display:flex; gap:6px; margin:8px 0; flex-wrap:wrap;">
+          <button class="btn" style="flex:1; padding:6px 8px; font-size:12px;" onclick="runDesignWorkflow()">🚀 执行设计</button>
+          <button class="btn btn-secondary" style="padding:6px 8px; font-size:12px;" onclick="showPrimerDesign()">🧪 引物</button>
+          <button class="btn btn-secondary" style="padding:6px 8px; font-size:12px;" onclick="showCalibration()">📐 校准</button>
+          <button class="btn btn-secondary" style="padding:6px 8px; font-size:12px;" onclick="showProtocolCard()">📋 方案</button>
+          <button class="btn btn-secondary" style="padding:6px 8px; font-size:12px;" onclick="showValidation()">🔬 验证</button>
+          <button class="btn btn-secondary" style="padding:6px 8px; font-size:12px;" onclick="suggestCombinations()">🧩 组合</button>
+        </div>
+        <!-- 结果展示 -->
+        <div id="design-results" style="display:none;">
+          <div style="border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; margin-top:4px; font-size:12px; background:var(--bg-input);">
+            <div id="design-mutation" style="color:var(--accent); font-weight:bold; margin-bottom:4px;"></div>
+            <div id="design-esm" style="margin-bottom:4px;"></div>
+            <div id="design-codon" style="margin-bottom:4px;"></div>
+            <div id="design-suggestions" style="margin-top:4px;"></div>
+            <div id="design-primers" style="margin-top:6px; border-top:1px solid var(--border); padding-top:6px; display:none;">
+              <div style="font-weight:600; color:var(--text); font-size:12px; margin-bottom:4px;">PCR引物</div>
+              <div id="primer-fwd" style="margin-bottom:4px;"></div>
+              <div id="primer-rev" style="margin-bottom:4px;"></div>
+              <div id="primer-tm" style="font-size:11px; color:var(--text-dim);"></div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:8px; font-size:11px; color:var(--text-dim); line-height:1.4;">
+          💡 ESM打分 → 密码子优化 → 引物设计 → 实验建议
+        </div>
+      </div>
+    </div>
+
+    </div><!-- /side-top -->
+
+    <!-- AI 聊天 -->
+    <div id="chat-panel">
+      <div id="chat-messages">
+        <div class="chat-msg tutor">👋 你好！试试在左边的3D结构中点击一个残基。</div>
+      </div>
+      <div id="chat-input-area">
+        <input id="chat-input" type="text" placeholder="输入问题...">
+        <button class="btn" id="btn-send" style="padding:8px 14px;">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="footer">
+  <span id="footer-pdb">PDB: —</span>
+  <span id="footer-residue">残基: —</span>
+  <span id="footer-gpu">GPU: 检测中...</span>
+</div>
+
+<script>
+// ─── 全局状态 ───
+let currentPDB = null;
+let selectedResidue = null;
+let viewer = null;
+let colorMode = "chain";
+let activeScoreRequest = 0;  // ESM打分请求去重
+let activeChatReader = null; // 聊天流取消
+
+// ─── 蛋白质名称映射 ───
+const PROTEIN_NAMES = {
+  "1ema":"绿色荧光蛋白","1lz1":"溶菌酶","1bni":"核糖核酸酶A","4hhb":"血红蛋白",
+  "1ubq":"泛素","2lyz":"溶菌酶","3i1d":"DNA三向连接","2et0":"DNA结构",
+  "1crn":"植物抗菌肽","4ake":"腺苷酸激酶","1mbn":"肌红蛋白","1gfl":"绿色荧光蛋白",
+  "1bna":"DNA双螺旋","1tim":"磷酸三糖异构酶","1fha":"铁蛋白","8fo4":"跨膜蛋白",
+};
+// 英文标题关键词 → 中文名 (用于搜索结果智能推断)
+const PROTEIN_KEYWORDS = [
+  ["GREEN FLUORESCENT","绿色荧光蛋白"],["LYSOZYME","溶菌酶"],["HEMOGLOBIN","血红蛋白"],
+  ["MYOGLOBIN","肌红蛋白"],["UBIQUITIN","泛素"],["RIBONUCLEASE","核糖核酸酶"],
+  ["INSULIN","胰岛素"],["ALBUMIN","血清白蛋白"],["TRANSFERRIN","转铁蛋白"],
+  ["IMMUNOGLOBULIN","免疫球蛋白"],["ANTIBODY","抗体"],["TRYPSIN","胰蛋白酶"],
+  ["CHYMOTRYPSIN","糜蛋白酶"],["THROMBIN","凝血酶"],["COLLAGEN","胶原蛋白"],
+  ["KERATIN","角蛋白"],["ACTIN","肌动蛋白"],["TUBULIN","微管蛋白"],
+  ["FERRITIN","铁蛋白"],["KINASE","激酶"],["PHOSPHATASE","磷酸酶"],
+  ["PROTEASE","蛋白酶"],["DEHYDROGENASE","脱氢酶"],["REDUCTASE","还原酶"],
+  ["TRANSFERASE","转移酶"],["HYDROLASE","水解酶"],["ISOMERASE","异构酶"],
+  ["LIGASE","连接酶"],["OXIDASE","氧化酶"],["PEROXIDASE","过氧化物酶"],
+  ["CATALASE","过氧化氢酶"],["AMYLASE","淀粉酶"],["LIPASE","脂肪酶"],
+  ["NUCLEASE","核酸酶"],["DNA POLYMERASE","DNA聚合酶"],["RNA POLYMERASE","RNA聚合酶"],
+  ["REVERSE TRANSCRIPTASE","逆转录酶"],["ENDONUCLEASE","内切酶"],
+  ["TRANSCRIPTION FACTOR","转录因子"],["REPRESSOR","阻遏蛋白"],
+  ["CHAPERONE","分子伴侣"],["HEAT SHOCK","热休克蛋白"],
+  ["PROTEASOME","蛋白酶体"],["RIBOSOME","核糖体蛋白"],["HISTONE","组蛋白"],
+  ["VIRUS","病毒蛋白"],["CAPSID","衣壳蛋白"],["SPIKE","刺突蛋白"],
+  ["MEMBRANE","膜蛋白"],["CHANNEL","通道蛋白"],["RECEPTOR","受体"],
+  ["GPCR","G蛋白偶联受体"],["CALMODULIN","钙调蛋白"],["TROPONIN","肌钙蛋白"],
+  ["FIBRIN","纤维蛋白"],["CYTOCHROME","细胞色素"],["INTERFERON","干扰素"],
+  ["INTERLEUKIN","白介素"],["CYTOKINE","细胞因子"],["GROWTH FACTOR","生长因子"],
+  ["LECTIN","凝集素"],["AVIDIN","亲和素"],["STREPTAVIDIN","链霉亲和素"],
+  ["FLUORESCENT","荧光蛋白"],["LUCIFERASE","荧光素酶"],["GFP","绿色荧光蛋白"],
+  ["CRAMBIN","植物抗菌肽"],["DNA","DNA"],["RNA","RNA"],["TRANSFER RNA","tRNA"],
+  ["SUPEROXIDE DISMUTASE","超氧化物歧化酶"],["CARBONIC ANHYDRASE","碳酸酐酶"],
+  ["ZINC FINGER","锌指蛋白"],["HEXOKINASE","己糖激酶"],
+  ["ATP SYNTHASE","ATP合酶"],["ATPASE","ATP酶"],
+  ["ALDOLASE","醛缩酶"],["ENOLASE","烯醇化酶"],
+  ["PHOSPHORYLASE","磷酸化酶"],["HELICASE","解旋酶"],
+  ["TOPOISOMERASE","拓扑异构酶"],["INTEGRASE","整合酶"],
+  ["RECOMBINASE","重组酶"],["METHYLTRANSFERASE","甲基转移酶"],
+  ["ACETYLTRANSFERASE","乙酰转移酶"],["UBIQUITIN LIGASE","泛素连接酶"],
+  ["CAS9","Cas9核酸酶"],["CRISPR","CRISPR相关蛋白"],
+  ["NEURAMINIDASE","神经氨酸酶"],["GLOBIN","珠蛋白"],
+  ["GLUCOSIDASE","葡萄糖苷酶"],["GALACTOSIDASE","半乳糖苷酶"],
+  ["ESTERASE","酯酶"],["PHOSPHOLIPASE","磷脂酶"],
+  ["AMINOTRANSFERASE","转氨酶"],["CITRATE SYNTHASE","柠檬酸合酶"],
+  ["PYRUVATE","丙酮酸"],["GLYCOGEN","糖原"],["CALCIUM","钙结合蛋白"],
+  ["SERUM ALBUMIN","血清白蛋白"],["OVALBUMIN","卵白蛋白"],
+  ["CONCANAVALIN","伴刀豆球蛋白"],["Ricin","蓖麻毒素"],
+  ["DIPHTHERIA","白喉毒素"],["CHOLERA","霍乱毒素"],
+  ["TETANUS","破伤风毒素"],["BOTULINUM","肉毒杆菌毒素"],
+  ["ANNEXIN","膜联蛋白"],["INTEGRIN","整合素"],["CADHERIN","钙粘蛋白"],
+  ["SELECTIN","选择素"],["CLAUDIN","紧密连接蛋白"],
+  ["AQUAPORIN","水通道蛋白"],["PORIN","孔蛋白"],
+  ["RHODOPSIN","视紫红质"],["OPSIN","视蛋白"],
+  ["CRYSTALLIN","晶体蛋白"],["ELASTASE","弹性蛋白酶"],
+  ["SUBTILISIN","枯草杆菌蛋白酶"],["PAPAIN","木瓜蛋白酶"],
+  ["BROMELAIN","菠萝蛋白酶"],["FICIN","无花果蛋白酶"],
+  ["PEPSIN","胃蛋白酶"],["RENIN","肾素"],
+  ["PLASMIN","纤溶酶"],["UROKINASE","尿激酶"],
+  ["STREPTOKINASE","链激酶"],["HYALURONIDASE","透明质酸酶"],
+  ["COLLAGENASE","胶原酶"],["GELATINASE","明胶酶"],
+  ["ELASTIN","弹性蛋白"],["LAMININ","层粘连蛋白"],
+  ["FIBRONECTIN","纤连蛋白"],["VITRONECTIN","玻连蛋白"],
+  ["PROTAMINE","鱼精蛋白"],["HIRUDIN","水蛭素"],
+  ["DEFENSIN","防御素"],["MAGAININ","蛙皮素"],
+  ["MELITTIN","蜂毒肽"],["CECROPIN","杀菌肽"],
+  ["BACTERIORHODOPSIN","细菌视紫红质"],["CYCLOPHILIN","亲环蛋白"],
+  ["FK506","FK506结合蛋白"],["IMMUNOPHILIN","亲免素"],
+  ["P53","p53肿瘤抑制蛋白"],["RAS","Ras蛋白"],["MYC","Myc蛋白"],
+  ["SRC","Src激酶"],["ABL","Abl激酶"],["EGFR","表皮生长因子受体"],
+];
+function getProteinName(pdbId) {
+  return PROTEIN_NAMES[pdbId.toLowerCase()] || "";
+}
+function guessChineseName(title) {
+  if (!title) return "";
+  let upper = title.toUpperCase();
+  for (let [kw, cn] of PROTEIN_KEYWORDS) {
+    if (upper.includes(kw)) return cn;
+  }
+  return "";
+}
+function getDisplayName(pdbId, title) {
+  let cn = getProteinName(pdbId);
+  if (!cn && title) cn = guessChineseName(title);
+  return cn;
+}
+function updateProteinBar(pdbId, extra) {
+  let label = document.getElementById("protein-label");
+  let title = document.getElementById("protein-title");
+  label.textContent = pdbId.toUpperCase();
+  let name = getProteinName(pdbId);
+  title.textContent = name || extra || "";
+  title.style.color = name ? "var(--accent2)" : "var(--text-dim)";
+}
+
+// ─── 初始化3D查看器 ───
+function initViewer() {
+  let element = document.getElementById("viewer-3d");
+  viewer = $3Dmol.createViewer(element, {
+    backgroundColor: "black",
+    antialias: true,
+  });
+  viewer.setBackgroundColor("black");
+  viewer.resize();
+}
+
+// ─── 加载PDB ───
+async function loadPDB(pdbId) {
+  console.log("loadPDB called:", pdbId);
+  showLoading(true);
+  try {
+    // 获取结构信息 (加时间戳防止浏览器缓存)
+    let resp = await fetch(`/api/structure/${pdbId}?_t=${Date.now()}`);
+    let data = await resp.json();
+    if (!resp.ok) throw new Error(`服务器错误: ${data.detail || resp.status}`);
+    if (!data || typeof data.residue_count !== 'number') {
+      throw new Error('服务器返回数据格式异常');
+    }
+    currentPDB = data;
+
+    // 加载PDB文件渲染
+    viewer.clear();
+    viewer.removeAllModels();
+    viewer.removeAllSurfaces();
+    viewer.removeAllLabels();
+
+    let pdbResp = await fetch(`/api/structure/${pdbId}/pdb`);
+    let pdbText = await pdbResp.text();
+    viewer.addModel(pdbText, "pdb");
+
+    // 渲染样式 — applyCurrentStyle 自动处理 cartoon + 配体
+    applyCurrentStyle();
+
+    // 先设置clickable，再render — 3Dmol在render时计算屏幕坐标
+    viewer.setClickable({}, true, function(atom, vwr, evt) {
+      if (!atom) return;
+      // resi 可能返回 "222A" (含链标识), 提取数字部分
+      let rawResi = atom.resi || atom.resnum || "";
+      let resnum = parseInt(String(rawResi).replace(/\D/g, ""));
+      let chain = atom.chain || "A";
+      if (!chain || chain === "") chain = "A";
+      let resname = atom.resn || "";
+      console.log("3Dmol clicked:", resname, resnum, chain, "(raw resi:", rawResi, ")");
+      if (!resnum || isNaN(resnum)) return;
+      if (["CRO", "HOH", "WAT"].includes(resname)) return;
+      selectResidue(chain, resnum);
+    });
+
+    viewer.zoomTo();
+    viewer.render();
+
+    // 同时注册 canvas 点击兜底 (延迟确保 canvas 就绪)
+    try { setTimeout(() => setupClickHandler(), 200); } catch(e) { console.log("setupClickHandler error:", e); }
+
+    // 更新UI
+    updateHeaderStatus(true);
+    updateProteinBar(pdbId);
+    document.getElementById("footer-pdb").textContent = `PDB: ${pdbId.toUpperCase()}`;
+    let residueInfo = `${currentPDB.residue_count} 个残基`;
+    if (currentPDB.seqres_length && currentPDB.seqres_length !== currentPDB.residue_count) {
+      residueInfo += ` (SEQRES: ${currentPDB.seqres_length}aa, ${currentPDB.seqres_length - currentPDB.residue_count}个未解析)`;
+    }
+    document.getElementById("footer-residue").textContent = residueInfo;
+    document.getElementById("pdb-input").value = pdbId;
+
+    // 重置选中
+    selectedResidue = null;
+    document.getElementById("residue-card").innerHTML = '<div class="empty">👆 点击3D结构中的残基查看详情</div>';
+    document.getElementById("score-panel").style.display = "none";
+    addChatMessage("tutor", `✅ 已加载 ${pdbId.toUpperCase()}，共 ${currentPDB.residue_count} 个残基。点击结构中的任意残基开始分析吧。`);
+
+  } catch(e) {
+    console.error("加载PDB失败:", e);
+    addChatMessage("tutor", `❌ 加载失败: ${e.message}`);
+  }
+  showLoading(false);
+}
+
+// ─── 残基点击处理 ───
+function setupClickHandler() {
+  if (!viewer) return;
+  
+  // 删除旧的setClickable方式，改用canvas原生click + 3Dmol picking
+  // 移除所有旧的事件监听器（避免重复绑定）
+  let oldCanvas = viewer.container.querySelector('canvas');
+  if (oldCanvas && oldCanvas._clickHandler) {
+    oldCanvas.removeEventListener('click', oldCanvas._clickHandler);
+  }
+  
+  // 获取3Dmol渲染的canvas
+  let canvas = viewer.container.querySelector('canvas');
+  if (!canvas) {
+    console.log("No canvas found");
+    return;
+  }
+  
+  canvas.style.cursor = "pointer";
+  
+  canvas._clickHandler = function(e) {
+    let rect = canvas.getBoundingClientRect();
+    let x = e.clientX - rect.left;
+    let y = e.clientY - rect.top;
+    
+    // 尝试多种picking API
+    let atom = null;
+    
+    // 方法1: $3Dmol.pick
+    if (typeof $3Dmol.pick === 'function') {
+      atom = $3Dmol.pick(viewer, {x: x, y: y});
+    }
+    
+    // 方法2: viewer.pickingId
+    if (!atom && typeof viewer.pickingId === 'function') {
+      let id = viewer.pickingId(x, y);
+      if (id !== -1) atom = viewer.getAtomFromId(id);
+    }
+    
+    // 方法3: 遍历所有atom (fallback)
+    if (!atom) {
+      let models = viewer.getModel ? viewer.getModel() : viewer.models ? viewer.models[0] : null;
+      if (!models) {
+        console.log("No models found");
+        return;
+      }
+      // getModel可能返回数组
+      let modelList = Array.isArray(models) ? models : [models];
+      let allAtoms = [];
+      for (let m of modelList) {
+        if (m.atoms) allAtoms = allAtoms.concat(m.atoms);
+      }
+      console.log("Total atoms:", allAtoms.length);
+      // 打印第一个atom的所有属性
+      if (allAtoms.length > 0) {
+        console.log("First atom keys:", Object.keys(allAtoms[0]));
+        console.log("First atom:", allAtoms[0]);
+      }
+      let minDist = Infinity;
+      for (let a of allAtoms) {
+        let sx = a.sx || a.screenX || a._screenX;
+        let sy = a.sy || a.screenY || a._screenY;
+        if (sx === undefined || sy === undefined) continue;
+        let dx = sx - x, dy = sy - y;
+        let d = dx*dx + dy*dy;
+        if (d < minDist) { minDist = d; atom = a; }
+      }
+      if (minDist === Infinity) {
+        console.log("No atoms with screen coords, trying pickable atom search...");
+        // 直接在canvas上用射线检测的方式不太可行, 换个思路
+        // 用model级别的click callback
+      }
+    }
+    
+    if (!atom) {
+      console.log("No atom at click position");
+      return;
+    }
+    
+    let a = atom.atom || atom;  // pick可能返回{atom: ...}包装
+    let rawResi = a.resi || a.resnum || "";
+    let resnum = parseInt(String(rawResi).replace(/\D/g, ""));
+    let chain = a.chain || "A";
+    if (!chain || chain === "") chain = "A";
+    let resname = a.resn || "";
+    
+    console.log("Picked:", resname, resnum, chain, "(raw resi:", rawResi, ")");
+    
+    if (!resnum || isNaN(resnum)) return;
+    if (["CRO", "HOH", "WAT"].includes(resname)) return;
+    
+    selectResidue(chain, resnum);
+  };
+  
+  canvas.addEventListener('click', canvas._clickHandler);
+  console.log("Canvas click handler bound");
+}
+
+async function selectResidue(chain, resnum) {
+  if (!currentPDB) return;
+
+  try {
+    let resp = await fetch(`/api/residue/${currentPDB.pdb_id}/${chain}/${resnum}`);
+    let residue = await resp.json();
+    selectedResidue = residue;
+
+    // 重新应用样式 (applyCurrentStyle 自动恢复配体+高亮)
+    viewer.removeAllLabels();
+    applyCurrentStyle();
+    viewer.render();
+
+    // 更新残基卡片
+    updateResidueCard(residue);
+
+    // 获取ESM打分
+    fetchESMScores(chain, resnum);
+
+    // 触发AI解释 (延迟加载，避免阻塞)
+    setTimeout(() => requestAIExplain(residue), 300);
+
+    document.getElementById("footer-residue").textContent =
+      `残基: ${residue.resname}${residue.resnum} (${residue.aa})`;
+
+  } catch(e) {
+    console.error("获取残基信息失败:", e);
+  }
+}
+
+async function fetchESMScores(chain, resnum) {
+  let reqId = ++activeScoreRequest;  // 标记本次请求，用于去重
+  let listEl = document.getElementById("score-list");
+  listEl.innerHTML = '<div style="font-size:12px;color:#888;padding:12px;text-align:center;">⏳ ESM 计算中...</div>';
+  document.getElementById("score-panel").style.display = "block";
+
+  try {
+    let resp = await fetch(`/api/score/${currentPDB.pdb_id}/${chain}/${resnum}`, { method: "POST" });
+    if (!resp.ok) throw new Error(await resp.text());
+    let data = await resp.json();
+    // 忽略过期请求
+    if (reqId !== activeScoreRequest) return;
+    renderScoreList(data);
+  } catch(e) {
+    if (reqId !== activeScoreRequest) return;  // 忽略过期请求的错误
+    listEl.innerHTML = `<div style="font-size:12px;color:#e94560;padding:12px;text-align:center;">打分失败: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderScoreList(data) {
+  let listEl = document.getElementById("score-list");
+  let wt = data.wt_aa;
+  let html = "";
+  let aaProps = {
+    "A":"疏水小","R":"碱性大","N":"极性","D":"酸性","C":"含硫","Q":"极性","E":"酸性","G":"最小",
+    "H":"芳香碱性","I":"疏水β支","L":"疏水","K":"碱性长","M":"含硫疏水","F":"芳香疏水",
+    "P":"环状刚性","S":"极性小","T":"极性β支","W":"芳香大","Y":"芳香极性","V":"疏水β支"
+  };
+  for (let item of data.scores) {
+    let cls = item.color === "good" ? "score-good" : item.color === "bad" ? "score-bad" : "score-neutral";
+    let wtMark = item.aa === wt ? " ◀ WT" : "";
+    let prop = aaProps[item.aa] || "";
+    html += `<div class="score-item ${cls}" onclick="selectMutation('${item.aa}')">
+      <span class="score-aa">${item.aa}${wtMark}</span>
+      <span style="font-size:10px;color:#888;">${prop}</span>
+      <span class="score-val">${item.score.toFixed(2)}</span>
+    </div>`;
+  }
+  listEl.innerHTML = html;
+}
+
+function selectMutation(aa) {
+  addChatMessage("user", `选择突变 ${aa}`);
+  // 触发AI解读这个突变
+  askAIAboutMutation(aa);
+}
+
+function updateResidueCard(residue) {
+  let surfaceClass = residue.surface ? "surface-exposed" : "surface-buried";
+  let surfaceText = residue.surface ? "表面暴露" : "埋藏";
+  let ssMap = {H: "α螺旋", E: "β折叠", C: "环区/卷曲"};
+  let ssName = ssMap[residue.secondary_structure] || "未分类";
+
+  document.getElementById("residue-card").innerHTML = `
+    <div class="name">${residue.resname}${residue.resnum} <span style="font-size:14px;color:#ccc;">(${residue.aa} · 链${residue.chain})</span></div>
+    <div class="info">
+      <span class="label">SASA:</span> ${residue.sasa} Å² · 
+      <span class="surface ${surfaceClass}">${surfaceText} (${Math.round(residue.rel_sasa*100)}%)</span><br>
+      <span class="label">二级结构:</span> ${ssName}<br>
+      ${residue.phi !== undefined && residue.phi !== null ? `<span class="label">二面角:</span> φ=${residue.phi}° ψ=${residue.psi}°<br>` : ''}
+      <span class="label">邻居残基 (&lt;5Å):</span> ${(residue.neighbors||[]).slice(0,8).join(', ')}${residue.neighbors&&residue.neighbors.length>8?'...':''}<br>
+      ${residue.hbonds && residue.hbonds.length > 0 ? 
+        '<span class="label">氢键:</span> ' + residue.hbonds.map(h => `${h.donor}↔${h.acceptor} (${h.dist}Å)`).slice(0,3).join(', ') : ''}
+    </div>
+  `;
+
+  document.getElementById("score-panel").style.display = "block";
+  
+  // Phase 2: 显示设计工作流面板
+  document.getElementById("design-panel").style.display = "block";
+  window._selectedTargetAA = null;
+  populateAASelector(residue.aa);
+}
+
+// ─── AI 解释 ───
+async function requestAIExplain(residue) {
+  if (!residue) return;
+  let msg = `请解释残基 ${residue.resname}${residue.resnum} (${residue.aa}, 链${residue.chain}) 在蛋白质中的角色`;
+  streamChat(msg);
+}
+
+async function askAIAboutMutation(aa) {
+  if (!selectedResidue) return;
+  let r = selectedResidue;
+  let msg = `${r.resname}${r.resnum}(${r.aa}) 突变为 ${aa}，ESM预测分数如何解读？这个突变是否合理？`;
+  streamChat(msg);
+}
+
+// ─── 聊天 ───
+function addChatMessage(role, text) {
+  let container = document.getElementById("chat-messages");
+  let div = document.createElement("div");
+  div.className = `chat-msg ${role}`;
+  div.textContent = text;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+async function streamChat(message) {
+  // 取消上一个流式聊天
+  if (activeChatReader) {
+    try { activeChatReader.cancel(); } catch(e) {}
+    activeChatReader = null;
+  }
+
+  addChatMessage("user", message);
+  let msgDiv = addChatMessage("tutor", "");
+  let fullText = "";
+
+  // 构建上下文注入到用户消息中
+  let contextParts = [];
+  if (currentPDB) {
+    contextParts.push(`[当前蛋白质: PDB ${currentPDB.pdb_id.toUpperCase()}, ${currentPDB.residue_count}个残基, 链: ${currentPDB.chains.join(',')}]`);
+    // 异步获取知识摘要注入 (不阻塞)
+    if (!currentPDB._knowledgeBrief) {
+      fetch("/api/knowledge/" + currentPDB.pdb_id + "/brief").then(r => r.json()).then(d => {
+        currentPDB._knowledgeBrief = d.brief || "";
+      }).catch(() => {});
+    }
+    if (currentPDB._knowledgeBrief) {
+      contextParts.push(`[蛋白背景: ${currentPDB._knowledgeBrief}]`);
+    }
+  }
+  if (selectedResidue) {
+    let r = selectedResidue;
+    contextParts.push(`[选中残基: ${r.resname}${r.resnum} (${r.aa}, 链${r.chain}), SASA:${r.sasa}Å², 表面:${r.surface?'是':'否'}]`);
+  }
+  let fullMessage = contextParts.length > 0 ? contextParts.join("\n") + "\n" + message : message;
+
+  try {
+    let resp = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: fullMessage, pdb_id: currentPDB ? currentPDB.pdb_id : "" }),
+    });
+    if (!resp.ok) throw new Error(`API错误 (${resp.status})`);
+
+    let reader = resp.body.getReader();
+    activeChatReader = reader;
+    let decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      let { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      let lines = buffer.split("\n");
+      // 保留最后一个可能不完整的行
+      buffer = lines.pop() || "";
+
+      for (let line of lines) {
+        if (line.startsWith("data: ")) {
+          let data = line.slice(6);
+          if (data === "[DONE]") break;
+          fullText += data;
+          msgDiv.textContent = fullText;
+          document.getElementById("chat-messages").scrollTop =
+            document.getElementById("chat-messages").scrollHeight;
+        }
+      }
+    }
+    if (!fullText) msgDiv.textContent = "(AI 未返回内容)";
+  } catch(e) {
+    if (e.name === "AbortError") return;  // 用户取消
+    msgDiv.textContent = `⚠️ 连接失败: ${escapeHtml(e.message)}`;
+  } finally {
+    activeChatReader = null;
+  }
+}
+
+document.getElementById("btn-send").addEventListener("click", async () => {
+  let input = document.getElementById("chat-input");
+  let msg = input.value.trim();
+  if (!msg) return;
+  input.value = "";
+  streamChat(msg);
+});
+
+document.getElementById("chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("btn-send").click();
+});
+
+// ─── 控件事件 ───
+let searchTimer = null;
+
+async function searchPDB() {
+  let q = document.getElementById("pdb-input").value.trim();
+  let resultsDiv = document.getElementById("search-results");
+
+  if (q.length < 2) { resultsDiv.style.display = "none"; return; }
+
+  // 检测中文输入 — PDB搜索API不支持中文
+  if (/[\u4e00-\u9fff]/.test(q)) {
+    resultsDiv.innerHTML = '<div style="padding:8px 10px;color:#ffaa00;font-size:12px;">⚠️ 暂不支持中文搜索，请输入英文蛋白名称或PDB ID (如 GFP, lysozyme, 1EMA)</div>';
+    resultsDiv.style.display = "block";
+    return;
+  }
+
+  // 如果是纯PDB ID (4位字母数字), 直接显示快捷加载
+  if (/^[0-9a-zA-Z]{4}$/.test(q)) {
+    resultsDiv.innerHTML = `<div onclick="loadPDB('${q}')" style="padding:6px 10px;cursor:pointer;color:#e94560;font-size:12px;">📁 直接加载 PDB: ${q.toUpperCase()}</div>`;
+    resultsDiv.style.display = "block";
+    return;
+  }
+
+  // 防抖搜索
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    try {
+      let resp = await fetch("/api/search?q=" + encodeURIComponent(q) + "&limit=8");
+      let data = await resp.json();
+      if (!data.results || data.results.length === 0) {
+        resultsDiv.innerHTML = '<div style="padding:6px 10px;color:#888;font-size:12px;">无结果</div>';
+      } else {
+        resultsDiv.innerHTML = '';
+        for (let r of data.results) {
+          let pdbId = r.pdb_id;
+          let cn = getDisplayName(pdbId, r.title);
+          let cnBadge = cn ? '<span style="color:#0cf;">' + cn + '</span> &middot; ' : '';
+          let div = document.createElement('div');
+          div.style.cssText = 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #0f3460;font-size:12px;';
+          div.innerHTML = '<span style="color:#e94560;font-weight:bold;">' + pdbId.toUpperCase() + '</span> ' +
+            cnBadge + '<span style="color:#ccc;display:block;font-size:11px;">' + r.title + '</span>';
+          div.addEventListener('click', function() {
+            resultsDiv.style.display = 'none';
+            loadPDB(pdbId);
+            // 加载后尝试用搜索结果标题推断中文名
+            setTimeout(() => {
+              let cn = guessChineseName(r.title);
+              if (cn && !getProteinName(pdbId)) {
+                document.getElementById("protein-title").textContent = cn;
+                document.getElementById("protein-title").style.color = "var(--accent2)";
+              }
+            }, 1000);
+          });
+          resultsDiv.appendChild(div);
+        }
+      }
+      resultsDiv.style.display = "block";
+    } catch(e) {
+      resultsDiv.style.display = "none";
+    }
+  }, 300);
+}
+
+// 失焦时隐藏搜索结果
+document.addEventListener("click", function(e) {
+  if (!e.target.closest("#pdb-input") && !e.target.closest("#search-results")) {
+    document.getElementById("search-results").style.display = "none";
+  }
+});
+
+document.getElementById("pdb-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    document.getElementById("search-results").style.display = "none";
+    loadPDB(e.target.value.trim());
+  }
+});
+
+document.getElementById("btn-reset").addEventListener("click", () => {
+  if (viewer) { viewer.zoomTo(); viewer.render(); }
+});
+
+document.getElementById("btn-style-cartoon").addEventListener("click", function() {
+  if (!viewer || !currentPDB) return;
+  this.classList.add("active");
+  document.getElementById("btn-style-surface").classList.remove("active");
+  viewer.removeAllSurfaces();
+  applyCurrentStyle();
+  viewer.render();
+});
+
+document.getElementById("btn-style-surface").addEventListener("click", function() {
+  if (!viewer || !currentPDB) return;
+  this.classList.add("active");
+  document.getElementById("btn-style-cartoon").classList.remove("active");
+  viewer.addSurface($3Dmol.SurfaceType.SAS, {opacity:0.7, color:"white"}, {});
+  viewer.render();
+});
+
+document.getElementById("btn-color-chain").addEventListener("click", function() {
+  if (!currentPDB) return;
+  colorMode = "chain";
+  this.classList.add("active");
+  document.getElementById("btn-color-bfactor").classList.remove("active");
+  applyCurrentStyle();
+  if (viewer) viewer.render();
+});
+
+document.getElementById("btn-color-bfactor").addEventListener("click", function() {
+  colorMode = "bfactor";
+  this.classList.add("active");
+  document.getElementById("btn-color-chain").classList.remove("active");
+  applyCurrentStyle();
+  if (viewer) viewer.render();
+});
+
+function applyCurrentStyle() {
+  if (!viewer || !currentPDB) return;
+  // 重置所有样式为基础 cartoon
+  if (colorMode === "bfactor") {
+    try {
+      viewer.setStyle({}, {cartoon: {colorscheme: {prop:"b", gradient:"rwb", min:0, max:100}}});
+    } catch(e) {
+      // B因子着色失败时回退到 spectrum
+      colorMode = "chain";
+      document.getElementById("btn-color-chain").classList.add("active");
+      document.getElementById("btn-color-bfactor").classList.remove("active");
+      viewer.setStyle({}, {cartoon: {color: "spectrum"}});
+    }
+  } else {
+    viewer.setStyle({}, {cartoon: {color: "spectrum"}});
+  }
+  // 恢复配体样式
+  if (currentPDB.ligands && currentPDB.ligands.length > 0) {
+    viewer.setStyle({resn: currentPDB.ligands.map(l => l.resname)}, {stick: {radius: 0.3}});
+  }
+  // 恢复选中残基高亮
+  if (selectedResidue) {
+    viewer.setStyle({chain: selectedResidue.chain, resi: selectedResidue.resnum}, {
+      stick: {radius: 0.3, color: "#ffff00"},
+      cartoon: {color: "#ffff00"}
+    });
+  }
+}
+
+document.getElementById("btn-scan-surface").addEventListener("click", async () => {
+  if (!currentPDB) return;
+  // 获取当前活跃链
+  let chain = currentPDB.chains[0] || "A";
+  openHeatmap(chain);
+});
+
+// ─── 热图 ───
+function openHeatmap(chain) {
+  let overlay = document.getElementById("heatmap-overlay");
+  let grid = document.getElementById("heatmap-grid");
+  let progress = document.getElementById("heatmap-progress");
+  overlay.classList.add("show");
+  grid.innerHTML = "";
+  progress.style.display = "block";
+  progress.innerHTML = '⏳ 正在扫描表面残基...<br><small style="color:#888;">正在计算 ESM 打分，根据残基数量可能需要 10-60 秒</small><br><small id="scan-elapsed" style="color:#666;"></small>';
+  document.getElementById("heatmap-tooltip").style.display = "none";
+
+  // 显示计时器
+  let startTime = Date.now();
+  let timerEl = null;
+  let timerInterval = setInterval(() => {
+    let elapsed = Math.round((Date.now() - startTime) / 1000);
+    let el = document.getElementById("scan-elapsed");
+    if (el) el.textContent = `已等待 ${elapsed} 秒...`;
+  }, 1000);
+
+  fetchHeatmapData(chain).then(data => {
+    clearInterval(timerInterval);
+    progress.style.display = "none";
+    if (!data || !data.heatmap || data.heatmap.length === 0) {
+      grid.innerHTML = '<div style="padding:40px;text-align:center;color:#888;">没有找到表面残基 (relSASA &gt; 25%)</div>';
+      return;
+    }
+    renderHeatmap(data);
+  }).catch(e => {
+    clearInterval(timerInterval);
+    progress.style.display = "none";
+    grid.innerHTML = `<div style="padding:40px;text-align:center;color:#e94560;">扫描失败: ${escapeHtml(e.message)}</div>`;
+  });
+}
+
+async function fetchHeatmapData(chain) {
+  let threshold = 0.25;
+  let resp = await fetch(`/api/scan/${currentPDB.pdb_id}/${chain}?sasa_threshold=${threshold}`, { method: "POST" });
+  if (!resp.ok) throw new Error(await resp.text());
+  return await resp.json();
+}
+
+function scoreColor(score) {
+  // 绿(负=稳定) → 白(0) → 红(正=不稳定)
+  let v = Math.max(-3, Math.min(3, score));
+  let t = (v + 3) / 6; // 0..1, 0=最绿(-3), 0.5=白(0), 1=最红(3)
+  let r, g, b;
+  if (t < 0.5) {
+    let s = t * 2;
+    r = Math.round(0 + s * 238);
+    g = Math.round(204 - s * 34);
+    b = Math.round(102 - s * 102);
+  } else {
+    let s = (t - 0.5) * 2;
+    r = Math.round(238 - s * 9);
+    g = Math.round(170 - s * 136);
+    b = Math.round(0 + s * 96);
+  }
+  return `rgb(${r},${g},${b})`;
+}
+
+function renderHeatmap(data) {
+  let grid = document.getElementById("heatmap-grid");
+  let aas = "ACDEFGHIKLMNPQRSTVWY".split("");
+  let rows = data.heatmap;
+  if (!rows || rows.length === 0) return;
+
+  // 构建grid: 行=残基, 列=20种aa (+1 corner +1 row header)
+  let nCols = aas.length + 2;
+  let nRows = rows.length + 1;
+  grid.style.gridTemplateColumns = `100px repeat(${aas.length}, 1fr)`;
+
+  let html = "";
+
+  // 表头行
+  html += '<div class="hm-corner"></div>';
+  for (let aa of aas) {
+    html += `<div class="hm-col-header">${aa}</div>`;
+  }
+
+  // 数据行
+  for (let row of rows) {
+    let resLabel = `${row.resname}${row.resnum} (${row.aa})`;
+    html += `<div class="hm-row-header" title="${resLabel} SASA:${Math.round(row.rel_sasa*100)}%">${resLabel}</div>`;
+
+    let scoreMap = {};
+    for (let s of row.scores) scoreMap[s.aa] = s.score;
+
+    for (let aa of aas) {
+      let score = scoreMap[aa];
+      if (score === undefined) {
+        html += '<div class="hm-cell" style="background:#333;"></div>';
+        continue;
+      }
+      let bg = scoreColor(score);
+      let wtClass = aa === row.aa ? " wt" : "";
+      html += `<div class="hm-cell${wtClass}" style="background:${bg};"
+        data-resnum="${row.resnum}" data-chain="${data.chain || 'A'}"
+        data-aa="${aa}" data-score="${score.toFixed(3)}"
+        data-resname="${row.resname}" data-wt="${row.aa}"
+        onmouseenter="showHeatmapTooltip(event, this)"
+        onmouseleave="hideHeatmapTooltip()"
+        onclick="clickHeatmapCell('${data.chain || 'A'}', ${row.resnum}, '${aa}')"
+      ></div>`;
+    }
+  }
+
+  grid.innerHTML = html;
+}
+
+function showHeatmapTooltip(e, cell) {
+  let tip = document.getElementById("heatmap-tooltip");
+  let resnum = cell.dataset.resnum;
+  let resname = cell.dataset.resname;
+  let wt = cell.dataset.wt;
+  let aa = cell.dataset.aa;
+  let score = cell.dataset.score;
+  let mutText = aa === wt ? `${resname}${resnum} ${aa} (WT)` : `${resname}${resnum} ${wt}→${aa}`;
+  tip.innerHTML = `${mutText}<br>ESM分数: ${score}`;
+  tip.style.display = "block";
+  tip.style.left = (e.clientX + 14) + "px";
+  tip.style.top = (e.clientY - 40) + "px";
+}
+
+function hideHeatmapTooltip() {
+  document.getElementById("heatmap-tooltip").style.display = "none";
+}
+
+function clickHeatmapCell(chain, resnum, aa) {
+  // 关闭热图
+  document.getElementById("heatmap-overlay").classList.remove("show");
+  // 跳转到该残基
+  selectResidue(chain, resnum);
+  // 如果选的是不同aa，触发解读
+  if (selectedResidue && selectedResidue.aa !== aa) {
+    setTimeout(() => askAIAboutMutation(aa), 500);
+  }
+}
+
+document.getElementById("heatmap-close").addEventListener("click", () => {
+  document.getElementById("heatmap-overlay").classList.remove("show");
+});
+document.getElementById("heatmap-overlay").addEventListener("click", function(e) {
+  if (e.target === this) this.classList.remove("show");
+});
+
+// ─── 序列设计工作流 (Phase 2) ───
+function toggleDesignPanel() {
+  let content = document.getElementById("design-content");
+  let toggle = document.getElementById("design-toggle");
+  let isOpen = content.style.display !== "none";
+  content.style.display = isOpen ? "none" : "block";
+  toggle.textContent = isOpen ? "展开 ▸" : "收起 ▾";
+}
+
+function populateAASelector(selectedWt) {
+  let container = document.getElementById("aa-selector");
+  let aas = "ACDEFGHIKLMNPQRSTVWY".split("");
+  let html = "";
+  for (let aa of aas) {
+    let isWt = aa === selectedWt;
+    let disabled = isWt ? "disabled" : "";
+    let style = isWt
+      ? "background:#333;color:#666;border:1px solid #444;cursor:not-allowed;"
+      : "background:#0f3460;color:#ccc;border:1px solid #0f3460;cursor:pointer;";
+    let activeStyle = aa === selectedWt ? style : style;
+    html += `<button class="aa-opt" data-aa="${aa}" ${disabled}
+      style="${style}padding:3px 7px;border-radius:3px;font-size:12px;font-family:monospace;"
+      onclick="selectTargetAA('${aa}')">${aa}</button>`;
+  }
+  container.innerHTML = html;
+  // 高亮选中的
+  if (window._selectedTargetAA) {
+    let btns = container.querySelectorAll(".aa-opt");
+    btns.forEach(b => {
+      if (b.dataset.aa === window._selectedTargetAA) {
+        b.style.borderColor = "#e94560";
+        b.style.background = "#e94560";
+        b.style.color = "#fff";
+      }
+    });
+  }
+}
+
+function selectTargetAA(aa) {
+  window._selectedTargetAA = aa;
+  populateAASelector(document.querySelector("#score-list .score-aa")?.textContent?.[0] || "");
+}
+
+async function runDesignWorkflow() {
+  if (!currentPDB || !selectedResidue) {
+    addChatMessage("tutor", "⚠️ 请先在3D结构中点击选择一个残基");
+    return;
+  }
+  let targetAA = window._selectedTargetAA;
+  if (!targetAA) {
+    addChatMessage("tutor", "⚠️ 请先在上方选择一个目标氨基酸");
+    return;
+  }
+
+  let resultsDiv = document.getElementById("design-results");
+  resultsDiv.style.display = "block";
+  document.getElementById("design-mutation").textContent = "⏳ 执行设计工作流...";
+  document.getElementById("design-primers").style.display = "none";
+
+  try {
+    let resp = await fetch(
+      `/api/design-workflow/${currentPDB.pdb_id}/${selectedResidue.chain}/${selectedResidue.resnum}/${targetAA}?primer_length=30`,
+      { method: "POST" }
+    );
+    if (!resp.ok) throw new Error(await resp.text());
+    let data = await resp.json();
+
+    // 显示结果
+    let mutEl = document.getElementById("design-mutation");
+    mutEl.textContent = `🧬 ${data.mutation}`;
+
+    document.getElementById("design-esm").innerHTML =
+      `<span style="color:${data.esm_score < -0.5 ? '#00ff88' : data.esm_score < 0 ? '#ffaa00' : '#e94560'}">
+        ESM分数: ${data.esm_score?.toFixed(3) || 'N/A'}
+      </span>`;
+
+    document.getElementById("design-codon").innerHTML =
+      `<span style="color:#888;">密码子变化: ${data.codon_change}</span>`;
+
+    // 建议
+    let suggHtml = data.suggestions.map(s =>
+      `<div style="font-size:11px;line-height:1.5;">${s}</div>`
+    ).join("");
+    document.getElementById("design-suggestions").innerHTML = suggHtml;
+
+    // 引物详情
+    let fwd = data.forward_primer;
+    let rev = data.reverse_primer;
+    let primerHtml = `
+      <div style="font-size:11px;margin-bottom:2px;">
+        <span style="color:#00ff88;">F:</span>
+        <span style="font-family:monospace;color:#ccc;">${fwd.sequence}</span>
+        <span style="color:#888;margin-left:6px;">(${fwd.length}nt, Tm=${fwd.tm_nearest_neighbor}°C, GC=${fwd.gc_percent}%)</span>
+      </div>
+      <div style="font-size:11px;margin-bottom:2px;">
+        <span style="color:#e94560;">R:</span>
+        <span style="font-family:monospace;color:#ccc;">${rev.sequence}</span>
+        <span style="color:#888;margin-left:6px;">(${rev.length}nt, Tm=${rev.tm_nearest_neighbor}°C, GC=${rev.gc_percent}%)</span>
+      </div>
+    `;
+    document.getElementById("primer-fwd").innerHTML = primerHtml;
+    document.getElementById("primer-tm").textContent =
+      `退火温度: ${data.recommended_annealing_temp}°C | Tm差异: ${data.primer_tm_diff?.toFixed(1) || '?'}°C`;
+    document.getElementById("design-primers").style.display = "block";
+
+    // 扩大设计面板
+    document.getElementById("design-content").style.display = "block";
+    document.getElementById("design-toggle").textContent = "收起 ▾";
+
+  } catch(e) {
+    document.getElementById("design-mutation").textContent = "❌ 设计失败: " + escapeHtml(e.message);
+  }
+}
+
+async function showPrimerDesign() {
+  if (!currentPDB || !selectedResidue) {
+    addChatMessage("tutor", "⚠️ 请先选择一个残基");
+    return;
+  }
+  let targetAA = window._selectedTargetAA;
+  if (!targetAA) {
+    addChatMessage("tutor", "⚠️ 请先选择目标氨基酸");
+    return;
+  }
+
+  let resultsDiv = document.getElementById("design-results");
+  resultsDiv.style.display = "block";
+  document.getElementById("design-mutation").textContent = "⏳ 设计引物...";
+
+  try {
+    let resp = await fetch(`/api/design-primers/${currentPDB.pdb_id}/${selectedResidue.chain}/${selectedResidue.resnum}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_aa: targetAA, primer_length: 30 }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    let data = await resp.json();
+
+    document.getElementById("design-mutation").textContent = `🧬 ${data.mutation}`;
+    document.getElementById("design-esm").textContent = "";
+    document.getElementById("design-codon").innerHTML =
+      `<span style="color:#888;">${data.wt_aa}密码子 ${data.wt_codon} → ${data.target_aa}密码子 ${data.target_codon}</span>`;
+
+    let fwd = data.forward_primer;
+    let rev = data.reverse_primer;
+    let primerHtml = `
+      <div style="font-size:11px;margin-bottom:2px;">
+        <span style="color:#00ff88;">Fwd:</span>
+        <span style="font-family:monospace;color:#ccc;">${fwd.sequence}</span>
+        <span style="color:#888;margin-left:6px;">Tm=${fwd.tm_nearest_neighbor}°C | GC=${fwd.gc_percent}%</span>
+      </div>
+      <div style="font-size:11px;margin-bottom:2px;">
+        <span style="color:#e94560;">Rev:</span>
+        <span style="font-family:monospace;color:#ccc;">${rev.sequence}</span>
+        <span style="color:#888;margin-left:6px;">Tm=${rev.tm_nearest_neighbor}°C | GC=${rev.gc_percent}%</span>
+      </div>
+    `;
+    document.getElementById("primer-fwd").innerHTML = primerHtml;
+    document.getElementById("primer-rev").innerHTML = "";
+    document.getElementById("primer-tm").textContent =
+      `退火温度: ${data.recommended_annealing_temp}°C | Tm差异: ${data.primer_tm_diff?.toFixed(1) || '?'}°C`;
+    document.getElementById("design-primers").style.display = "block";
+    document.getElementById("design-content").style.display = "block";
+    document.getElementById("design-toggle").textContent = "收起 ▾";
+
+  } catch(e) {
+    document.getElementById("design-mutation").textContent = "❌ 引物设计失败: " + escapeHtml(e.message);
+  }
+}
+
+// ─── 多PDB对比 ───
+async function comparePDBs() {
+  if (!currentPDB) { addChatMessage("tutor", "请先加载一个PDB结构"); return; }
+  if (window._comparedPDB) { addChatMessage("tutor", "已在叠合模式, 请先点↩单结构"); return; }
+  let pdb2 = prompt("对比哪个PDB？\n(已加载: " + currentPDB.pdb_id.toUpperCase() + ")", "1LZ1");
+  if (!pdb2) return;
+  
+  showLoading(true);
+  addChatMessage("user", "对比 " + currentPDB.pdb_id.toUpperCase() + " vs " + pdb2.toUpperCase());
+  let msgDiv = addChatMessage("tutor", "⏳ 正在加载并对比...");
+
+  try {
+    // 加载第二个PDB
+    let resp2 = await fetch("/api/structure/" + pdb2);
+    if (!resp2.ok) throw new Error("加载 " + pdb2 + " 失败");
+    await resp2.json(); // 触发缓存
+
+    // 3D叠合: 加载第二个结构 (用不同颜色+半透明)
+    let pdbResp2 = await fetch("/api/structure/" + pdb2 + "/pdb");
+    let pdbText2 = await pdbResp2.text();
+
+    // 保存当前结构引用
+    window._comparedPDB = pdb2;
+    window._originalPDB = currentPDB.pdb_id;
+
+    // 添加第二个模型 (不覆盖第一个)
+    viewer.addModel(pdbText2, "pdb");
+    viewer.setStyle({model: -1}, {cartoon: {color: "#00ccff", opacity: 0.5}});  // 半透明蓝
+    viewer.setStyle({model: 0}, {cartoon: {color: "spectrum", opacity: 0.7}});  // 光谱色(半透明保持可见)
+    viewer.zoomTo();
+    viewer.render();
+
+    // 加叠合按钮
+    let btnDiv = document.createElement("div");
+    btnDiv.innerHTML = '<button onclick="clearSuperposition()" style="background:#e94560;color:#fff;border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;margin:4px;">↩ 单结构</button>';
+    document.getElementById("viewer-controls").appendChild(btnDiv.firstElementChild);
+
+    // API对比
+    let resp = await fetch("/api/compare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pdb_ids: [currentPDB.pdb_id, pdb2], chain: "A" }),
+    });
+    let data = await resp.json();
+
+    let summary = `🔬 PDB对比: ${data.pdb_ids[0]} vs ${data.pdb_ids[1]}
+─────────────────────────
+序列一致性: ${data.identity}%
+RMSD: ${data.rmsd ? data.rmsd + " Å" : "N/A"} ${data.rmsd && data.rmsd > 5 ? "⚠️ 未做旋转叠合" : ""}
+─────────────────────────
+二级结构 (${data.pdb_ids[0]}): α${data.ss_comparison[data.pdb_ids[0]].H.pct}% β${data.ss_comparison[data.pdb_ids[0]].E.pct}% 环${data.ss_comparison[data.pdb_ids[0]].C.pct}%
+二级结构 (${data.pdb_ids[1]}): α${data.ss_comparison[data.pdb_ids[1]].H.pct}% β${data.ss_comparison[data.pdb_ids[1]].E.pct}% 环${data.ss_comparison[data.pdb_ids[1]].C.pct}%
+─────────────────────────
+3D视图中: 光谱色=PDB1, 半透明蓝=PDB2`;
+
+    msgDiv.textContent = summary;
+  } catch(e) {
+    msgDiv.textContent = "❌ 对比失败: " + e.message;
+  }
+  showLoading(false);
+}
+
+function clearSuperposition() {
+  if (!window._originalPDB) return;
+  // 重新加载原始PDB (清除所有模型)
+  loadPDB(window._originalPDB);
+  window._comparedPDB = null;
+  window._originalPDB = null;
+  // 移除叠合按钮
+  let btns = document.getElementById("viewer-controls").querySelectorAll("button");
+  for (let b of btns) {
+    if (b.textContent.includes("单结构")) b.remove();
+  }
+}
+
+// ─── 方案卡片 ───
+async function showProtocolCard() {
+  if (!selectedResidue) { addChatMessage("tutor", "请先点击一个残基并选择突变目标"); return; }
+  let aa = prompt("目标氨基酸 (如 ALA):", "ALA");
+  if (!aa) return;
+  aa = aa.trim().toUpperCase();
+
+  let mutDesc = selectedResidue.resname + selectedResidue.resnum + "→" + aa;
+  addChatMessage("user", "📋 生成方案: " + mutDesc);
+  let msgDiv = addChatMessage("tutor", "⏳ 生成中...");
+
+  try {
+    let resp = await fetch("/api/protocol/" + currentPDB.pdb_id, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ protocol_type: "full", mutation_desc: mutDesc }),
+    });
+    let data = await resp.json();
+
+    // 解析Markdown为折叠卡片
+    let md = data.protocol;
+    let sections = md.split(/\n##\s+/);
+    let html = '<div style="font-size:12px;max-height:400px;overflow-y:auto;">';
+
+    for (let sec of sections) {
+      if (!sec.trim()) continue;
+      let lines = sec.split("\n");
+      let title = lines[0].replace(/^#+\s*/, "");
+      let body = lines.slice(1).join("<br>").replace(/\|/g, "│"); // 保护表格pipe
+
+      html += `<details style="margin:4px 0;background:#1a1a2e;border-radius:4px;padding:6px 10px;">
+        <summary style="cursor:pointer;color:#e94560;font-weight:bold;font-size:13px;">${title}</summary>
+        <div style="padding:8px 0;line-height:1.6;white-space:pre-wrap;font-family:monospace;font-size:11px;">${body}</div>
+      </details>`;
+    }
+    html += '</div><div style="margin-top:8px;"><button class="btn" style="padding:4px 10px;font-size:11px;" onclick="navigator.clipboard.writeText(this.dataset.md)" data-md="' + escapeHtml(data.protocol).replace(/"/g, '&quot;') + '">📋 复制Markdown</button></div>';
+
+    msgDiv.innerHTML = html;
+  } catch(e) {
+    msgDiv.textContent = "❌ 方案生成失败: " + e.message;
+  }
+}
+
+// ─── 校准面板 ───
+async function showCalibration() {
+  let name = prompt("校准集名称 (如 gfp_exp1):");
+  if (!name) return;
+
+  let example = "每行一个突变, Tab分隔: 位置\t原始aa\t突变aa\t实验ΔΔG\tESM分数\n222\tE\tA\t-0.3\t-2.1\n222\tE\tD\t-1.1\t-1.5";
+  let raw = prompt("粘贴实验数据 (位置 WT MUT exp_ddG esm_score, Tab分隔每列, 每行一个突变):\n\n" + example);
+  if (!raw) return;
+
+  // 解析数据
+  let lines = raw.trim().split("\n").filter(l => l.trim() && !l.startsWith("位置"));
+  let entries = [];
+  for (let line of lines) {
+    let parts = line.split("\t");
+    if (parts.length < 5) continue;
+    entries.push({
+      position: parseInt(parts[0]),
+      wt: parts[1].trim().toUpperCase(),
+      mut: parts[2].trim().toUpperCase(),
+      exp_ddg: parseFloat(parts[3]),
+      esm_score: parseFloat(parts[4])
+    });
+  }
+  if (entries.length < 2) { alert("需要至少2条有效数据"); return; }
+
+  addChatMessage("user", "📐 提交校准数据: " + name + " (" + entries.length + "条)");
+  let msgDiv = addChatMessage("tutor", "⏳ 拟合中...");
+
+  try {
+    let resp = await fetch("/api/calibrate/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, entries: entries }),
+    });
+    let data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "失败");
+
+    let rel = data.reliability === "good" ? "🟢" : data.reliability === "moderate" ? "🟡" : "🔴";
+    msgDiv.textContent = `📐 校准完成: ${name}
+n=${data.n_samples} | 斜率=${data.slope} | 截距=${data.intercept}
+R²=${data.r_squared} | MAE=${data.mae} | 可靠性: ${rel} ${data.reliability}
+
+提示: 之后打分时用 /api/calibrate/{name}/predict?esm_score=X 获取校准值`;
+
+  } catch(e) {
+    msgDiv.textContent = "❌ 校准失败: " + e.message;
+  }
+}
+
+// ─── AI组合突变建议 ───
+function suggestCombinations() {
+  if (!currentPDB) { addChatMessage("tutor", "请先加载一个PDB结构"); return; }
+  let context = `[蛋白质: PDB ${currentPDB.pdb_id.toUpperCase()}, ${currentPDB.residue_count}aa]`;
+  if (selectedResidue) {
+    context += `\n[选中残基: ${selectedResidue.resname}${selectedResidue.resnum} (${selectedResidue.aa}), SASA:${selectedResidue.sasa}Å²]`;
+  }
+  let prompt = context + "\n请分析这个蛋白的突变设计策略：哪些残基位置适合做组合突变？如果有2-3个位置同时突变，哪些组合可能有协同效应？考虑结构互补、电荷配对、疏水核心完整性等因素。给出2-3个具体的组合突变方案，每个说明理由。";
+  streamChat(prompt);
+}
+
+// ─── 拉氏图 ───
+async function showRamachandran() {
+  if (!currentPDB) { addChatMessage("tutor", "请先加载一个PDB结构"); return; }
+  
+  let resp = await fetch("/api/ramachandran/" + currentPDB.pdb_id);
+  let data = await resp.json();
+  if (!data.points || data.points.length === 0) {
+    addChatMessage("tutor", "无phi/psi数据");
+    return;
+  }
+
+  // 创建Canvas
+  let overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:1000;display:flex;align-items:center;justify-content:center;";
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+  let box = document.createElement("div");
+  box.style.cssText = "background:#16213e;border-radius:8px;padding:16px;max-width:520px;";
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+    <span style="color:#e94560;font-weight:bold;">🧬 Ramachandran图 — ${currentPDB.pdb_id.toUpperCase()} (${data.count}残基)</span>
+    <button onclick="this.closest('div').parentElement.parentElement.remove()" style="background:none;color:#888;border:none;font-size:18px;cursor:pointer;">✕</button>
+  </div>
+  <div style="font-size:11px;color:#888;margin-bottom:8px;">
+    🔴 α螺旋 | 🔵 β折叠 | ⚪ 环区 | 横轴 φ | 纵轴 ψ
+  </div>
+  <canvas id="rama-canvas" width="480" height="480" style="background:#1a1a2e;border-radius:4px;"></canvas>`;
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  // 绘制
+  let canvas = document.getElementById("rama-canvas");
+  let ctx = canvas.getContext("2d");
+  let w = 480, h = 480;
+  let cx = w/2, cy = h/2;
+
+  // 背景网格
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 0.5;
+  for (let deg = -180; deg <= 180; deg += 30) {
+    let x = cx + (deg/180) * (w/2 - 40);
+    let y = cy - (deg/180) * (h/2 - 40);
+    ctx.beginPath(); ctx.moveTo(x, 20); ctx.lineTo(x, h-20); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(20, y); ctx.lineTo(w-20, y); ctx.stroke();
+  }
+  
+  // 轴线
+  ctx.strokeStyle = "#666";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx, 20); ctx.lineTo(cx, h-20); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(20, cy); ctx.lineTo(w-20, cy); ctx.stroke();
+
+  // 刻度
+  ctx.fillStyle = "#888";
+  ctx.font = "10px monospace";
+  ctx.fillText("φ", w-25, cy-5);
+  ctx.fillText("ψ", cx+5, 19);
+  for (let deg = -180; deg <= 180; deg += 60) {
+    ctx.fillText(deg+"°", cx+(deg/180)*(w/2-40)-15, cy-5);
+    ctx.fillText(deg+"°", cx+5, cy-(deg/180)*(h/2-40)+4);
+  }
+
+  // 散点
+  for (let p of data.points) {
+    let x = cx + (p.phi/180) * (w/2 - 40);
+    let y = cy - (p.psi/180) * (h/2 - 40);
+    ctx.fillStyle = p.ss === "H" ? "#e94560" : p.ss === "E" ? "#00ccff" : "#888";
+    ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+// ─── CSV导出 ───
+async function exportCSV() {
+  if (!currentPDB) { addChatMessage("tutor", "请先加载一个PDB结构"); return; }
+  let chain = currentPDB.chains[0] || "A";
+  addChatMessage("user", "📥 导出 " + currentPDB.pdb_id.toUpperCase() + " 链" + chain + " ESM打分");
+  let msgDiv = addChatMessage("tutor", "⏳ ESM批量打分中...");
+  
+  try {
+    let resp = await fetch("/api/export/csv/" + currentPDB.pdb_id + "/" + chain);
+    let data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "失败");
+    
+    let blob = new Blob([data.csv], { type: "text/csv" });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement("a");
+    a.href = url;
+    a.download = data.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    msgDiv.textContent = "📥 CSV已下载: " + data.filename;
+  } catch(e) {
+    msgDiv.textContent = "❌ 导出失败: " + e.message;
+  }
+}
+
+// ─── 设计报告 ───
+async function downloadReport() {
+  if (!currentPDB) { addChatMessage("tutor", "请先加载一个PDB结构"); return; }
+  addChatMessage("user", "📄 生成设计报告");
+  let msgDiv = addChatMessage("tutor", "⏳ 生成中...");
+
+  try {
+    let resp = await fetch("/api/report/" + currentPDB.pdb_id, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    let data = await resp.json();
+
+    // 下载为 .md 文件
+    let blob = new Blob([data.report], { type: "text/markdown" });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement("a");
+    a.href = url;
+    a.download = currentPDB.pdb_id + "_design_report.md";
+    a.click();
+    URL.revokeObjectURL(url);
+
+    msgDiv.textContent = "📄 报告已下载: " + a.download;
+  } catch(e) {
+    msgDiv.textContent = "❌ 生成失败: " + e.message;
+  }
+}
+
+// ─── 知识引擎 ───
+async function loadKnowledge(refresh) {
+  if (!currentPDB) { addChatMessage("tutor", "请先加载一个PDB结构"); return; }
+  let mode = refresh ? " (强制刷新)" : "";
+  addChatMessage("user", "📚 获取 " + currentPDB.pdb_id.toUpperCase() + " 知识页" + mode);
+  let msgDiv = addChatMessage("tutor", refresh ? "⏳ 正在重新生成..." : "⏳ 查询中...");
+
+  try {
+    let url = "/api/knowledge/" + currentPDB.pdb_id;
+    if (refresh) url += "?refresh=true";
+    let resp = await fetch(url);
+    let data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "失败");
+
+    if (data.cached) {
+      let header = `📋 缓存内容 · `;
+      let footer = `\n\n---\n💡 点击「📚+」按钮可强制刷新`;
+      msgDiv.textContent = header + data.content + footer;
+    } else if (data.error) {
+      msgDiv.textContent = "❌ " + data.error;
+    } else {
+      let footer = `\n\n---\n✅ 实时生成 · 已缓存到本地`;
+      msgDiv.textContent = data.content + footer;
+    }
+  } catch(e) {
+    msgDiv.textContent = "❌ " + e.message;
+  }
+}
+
+// ─── 工具函数 ───
+function escapeHtml(str) {
+  let div = document.createElement("div");
+  div.appendChild(document.createTextNode(str));
+  return div.innerHTML;
+}
+
+function showLoading(show) {
+  document.getElementById("loading").style.display = show ? "flex" : "none";
+}
+
+function updateHeaderStatus(ok) {
+  let el = document.getElementById("header-status");
+  el.innerHTML = ok 
+    ? '<span class="ok">● 就绪</span>'
+    : '<span class="warn">● 初始化中</span>';
+}
+
+// ─── ESM 验证面板 ───
+async function showValidation() {
+  // 先列出可用的基准集
+  let benchesResp = await fetch("/api/validation/benchmarks");
+  let benchesData = await benchesResp.json();
+  let benchmarks = benchesData.benchmarks || [];
+
+  if (benchmarks.length === 0) {
+    addChatMessage("tutor", "🔬 未找到验证数据集。请运行 scripts/download_benchmarks.py 下载。");
+    return;
+  }
+
+  // 创建选择/运行界面
+  let overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:1000;display:flex;align-items:center;justify-content:center;";
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+  let box = document.createElement("div");
+  box.style.cssText = "background:#16162a;border:1px solid #252550;border-radius:10px;padding:20px;max-width:900px;max-height:90vh;overflow-y:auto;width:95%;";
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <span style="color:#e94560;font-weight:bold;font-size:16px;">🔬 ESM-2 验证面板</span>
+    <button onclick="this.closest('div').parentElement.parentElement.remove()" style="background:none;color:#888;border:none;font-size:18px;cursor:pointer;">✕</button>
+  </div>
+  <div style="font-size:12px;color:#888;margin-bottom:16px;">
+    用实验验证的突变数据评估 ESM-2 预测准确性。数据集来自 ProTherm 数据库。
+  </div>
+  <div id="val-dataset-select" style="margin-bottom:12px;">
+    <label style="font-size:12px;color:var(--text-dim);">选择数据集:</label>
+    <select id="val-ds-select" style="background:#12122a;color:#d0d0e0;border:1px solid #252550;padding:6px 10px;border-radius:4px;margin-left:8px;font-size:12px;">
+      ${benchmarks.map(b => `<option value="${b.file}">${b.name} (${b.n_entries}条)</option>`).join("")}
+    </select>
+    <button class="btn" style="padding:6px 12px;font-size:12px;margin-left:8px;" onclick="runValidation()">▶ 运行验证</button>
+  </div>
+  <div id="val-status" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
+  <div id="val-results" style="display:none;">
+    <div id="val-metrics" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;"></div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+      散点图: 横轴=ESM分数差(logP突变-logP野生) | 纵轴=实验ΔΔG(kcal/mol)
+      <br>🟢 方向正确 (ESM与实验正负号一致) | 🔴 方向错误
+    </div>
+    <canvas id="val-scatter" width="580" height="420" style="background:#0f0f1a;border-radius:6px;width:100%;max-width:580px;"></canvas>
+    <div id="val-breakdown" style="margin-top:12px;font-size:12px;"></div>
+    <div id="val-interp" style="margin-top:12px;padding:10px;background:#1c1c35;border-radius:6px;font-size:12px;color:#aaa;line-height:1.6;"></div>
+  </div>`;
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  // 把 runValidation 挂到全局
+  window._valOverlay = overlay;
+}
+
+async function runValidation() {
+  let dsName = document.getElementById("val-ds-select")?.value || "s669_mini";
+  let statusEl = document.getElementById("val-status");
+  let resultsEl = document.getElementById("val-results");
+
+  statusEl.innerHTML = '<span style="color:#ffab40;">⏳ 加载 ESM 模型并对验证集打分...（首次约需2-5分钟，RTX3060约10秒/位点）</span>';
+  statusEl.style.color = "#ffab40";
+
+  try {
+    let resp = await fetch("/api/validation/" + dsName + "?force_rerun=false");
+    let data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "验证失败");
+
+    resultsEl.style.display = "block";
+    statusEl.innerHTML = '<span style="color:#00e676;">✓ 验证完成</span>';
+
+    renderValidationResults(data);
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#e94560;">✗ 错误: ' + e.message + '</span>';
+  }
+}
+
+function renderValidationResults(data) {
+  let m = data.metrics || {};
+
+  // 指标卡片
+  document.getElementById("val-metrics").innerHTML = `
+    <div style="background:#1c1c35;border-radius:6px;padding:12px;text-align:center;min-width:80px;">
+      <div style="font-size:10px;color:#888;">数据点</div>
+      <div style="font-size:22px;font-weight:bold;color:#00ccff;">${data.n_valid}</div>
+    </div>
+    <div style="background:#1c1c35;border-radius:6px;padding:12px;text-align:center;min-width:90px;">
+      <div style="font-size:10px;color:#888;">Spearman ρ</div>
+      <div style="font-size:22px;font-weight:bold;color:${m.spearman_rho >= 0.4 ? '#00e676' : '#ffab40'}">${m.spearman_rho}</div>
+    </div>
+    <div style="background:#1c1c35;border-radius:6px;padding:12px;text-align:center;min-width:90px;">
+      <div style="font-size:10px;color:#888;">Pearson r</div>
+      <div style="font-size:22px;font-weight:bold;color:${m.pearson_r >= 0.4 ? '#00e676' : '#ffab40'}">${m.pearson_r}</div>
+    </div>
+    <div style="background:#1c1c35;border-radius:6px;padding:12px;text-align:center;min-width:100px;">
+      <div style="font-size:10px;color:#888;">方向准确率</div>
+      <div style="font-size:22px;font-weight:bold;color:${m.direction_accuracy >= 0.6 ? '#00e676' : '#ffab40'}">${(m.direction_accuracy*100).toFixed(0)}%</div>
+    </div>
+    <div style="background:#1c1c35;border-radius:6px;padding:12px;text-align:center;min-width:100px;">
+      <div style="font-size:10px;color:#888;">稳定化灵敏度</div>
+      <div style="font-size:22px;font-weight:bold;color:${m.stabilizing_sensitivity >= 0.6 ? '#00e676' : '#ffab40'}">${(m.stabilizing_sensitivity*100).toFixed(0)}%</div>
+    </div>
+  `;
+
+  // 散点图
+  drawValidationScatter(data.scatter || []);
+
+  // 残基类型拆分
+  let byType = data.by_residue_type || {};
+  let breakdownHtml = '<div style="font-weight:600;margin-bottom:6px;">按残基类型拆分 (方向准确率):</div><div style="display:flex;gap:12px;flex-wrap:wrap;">';
+  let aaOrder = ["疏水", "极性", "带电", "特殊", "A","C","D","E","F","G","H","I","K","L","M","N","P","Q","R","S","T","V","W","Y"];
+  for (let key of aaOrder) {
+    if (byType[key]) {
+      let acc = byType[key].accuracy;
+      let color = acc >= 0.7 ? "#00e676" : acc >= 0.5 ? "#ffab40" : "#e94560";
+      breakdownHtml += `<span style="background:#1c1c35;padding:3px 8px;border-radius:4px;" title="n=${byType[key].n}">
+        <b>${key}</b> <span style="color:${color}">${(acc*100).toFixed(0)}%</span>
+      </span>`;
+    }
+  }
+  breakdownHtml += "</div>";
+  document.getElementById("val-breakdown").innerHTML = breakdownHtml;
+
+  // 解读
+  document.getElementById("val-interp").innerHTML = `
+    <b>解读:</b> ${data.interpretation?.spearman || ""}<br>
+    ${data.interpretation?.direction || ""}<br><br>
+    <b style="color:#e94560;">⚠️ ${data.interpretation?.caveat || ""}</b>
+  `;
+}
+
+function drawValidationScatter(points) {
+  let canvas = document.getElementById("val-scatter");
+  if (!canvas) return;
+  let ctx = canvas.getContext("2d");
+  let W = canvas.width, H = canvas.height;
+  let margin = {l:60, r:20, t:20, b:50};
+  let pw = W - margin.l - margin.r;
+  let ph = H - margin.t - margin.b;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0f0f1a";
+  ctx.fillRect(0, 0, W, H);
+
+  // 确定坐标范围
+  let esmMin = Infinity, esmMax = -Infinity;
+  let ddgMin = Infinity, ddgMax = -Infinity;
+  for (let p of points) {
+    if (p.esm_diff < esmMin) esmMin = p.esm_diff;
+    if (p.esm_diff > esmMax) esmMax = p.esm_diff;
+    if (p.exp_ddg < ddgMin) ddgMin = p.exp_ddg;
+    if (p.exp_ddg > ddgMax) ddgMax = p.exp_ddg;
+  }
+  esmMin = Math.min(esmMin, -6); esmMax = Math.max(esmMax, 6);
+  ddgMin = Math.min(ddgMin, -3); ddgMax = Math.max(ddgMax, 8);
+  let esmPad = (esmMax - esmMin) * 0.1;
+  let ddgPad = (ddgMax - ddgMin) * 0.1;
+  let xMin = esmMin - esmPad, xMax = esmMax + esmPad;
+  let yMin = ddgMin - ddgPad, yMax = ddgMax + ddgPad;
+
+  function toX(v) { return margin.l + (v - xMin) / (xMax - xMin) * pw; }
+  function toY(v) { return margin.t + (yMax - v) / (yMax - yMin) * ph; }
+
+  // 网格
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 0.5;
+  for (let gx = Math.floor(xMin); gx <= Math.ceil(xMax); gx++) {
+    ctx.beginPath(); ctx.moveTo(toX(gx), margin.t); ctx.lineTo(toX(gx), margin.t+ph); ctx.stroke();
+  }
+  for (let gy = Math.floor(yMin); gy <= Math.ceil(yMax); gy++) {
+    ctx.beginPath(); ctx.moveTo(margin.l, toY(gy)); ctx.lineTo(margin.l+pw, toY(gy)); ctx.stroke();
+  }
+
+  // 轴线
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(toX(0), margin.t); ctx.lineTo(toX(0), margin.t+ph); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(margin.l, toY(0)); ctx.lineTo(margin.l+pw, toY(0)); ctx.stroke();
+
+  // 散点
+  for (let p of points) {
+    let cx = toX(p.esm_diff);
+    let cy = toY(p.exp_ddg);
+    ctx.fillStyle = p.correct ? "rgba(0,230,118,0.6)" : "rgba(233,69,96,0.6)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.5, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // 轴标签
+  ctx.fillStyle = "#888";
+  ctx.font = "11px sans-serif";
+  ctx.fillText("ESM 分数差 (logP mut - logP wt)", margin.l + pw/2 - 100, H - 8);
+  ctx.save();
+  ctx.translate(14, margin.t + ph/2 + 60);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText("实验 ΔΔG (kcal/mol)", 0, 0);
+  ctx.restore();
+
+  // 图例
+  ctx.fillStyle = "rgba(0,230,118,0.6)";
+  ctx.fillRect(margin.l, H-28, 12, 12);
+  ctx.fillStyle = "#888";
+  ctx.font = "11px sans-serif";
+  ctx.fillText("方向正确", margin.l+16, H-18);
+  ctx.fillStyle = "rgba(233,69,96,0.6)";
+  ctx.fillRect(margin.l+80, H-28, 12, 12);
+  ctx.fillText("方向错误", margin.l+96, H-18);
+
+  // 象限标注
+  ctx.fillStyle = "#555";
+  ctx.font = "10px sans-serif";
+  ctx.fillText("ESM→稳定, 实验→稳定(✓)", toX(-1), toY(-0.5)-5);
+  ctx.fillText("ESM→不稳定, 实验→稳定(✗)", toX(1), toY(-0.5)-5);
+  ctx.fillText("ESM→稳定, 实验→不稳定(✗)", toX(-1), toY(0.5)+12);
+  ctx.fillText("ESM→不稳定, 实验→不稳定(✓)", toX(1), toY(0.5)+12);
+}
+
+// ─── 健康检查 + 启动 ───
+async function init() {
+  console.log("init() started");
+  try {
+    let resp = await fetch("/api/health");
+    let data = await resp.json();
+    document.getElementById("footer-gpu").textContent = 
+      data.diagnostics.gpu.ok ? `GPU: ${data.diagnostics.gpu.name}` : "GPU: 不可用";
+  } catch(e) {
+    console.log("等待服务启动...");
+  }
+
+  initViewer();
+  
+  // 自动加载默认PDB (setupClickHandler已在loadPDB内部调用)
+  setTimeout(() => {
+    loadPDB("1EMA");
+  }, 500);
+}
+
+// 窗口大小调整
+window.addEventListener("resize", () => {
+  if (viewer) viewer.resize();
+});
+
+// ─── 启动 ───
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

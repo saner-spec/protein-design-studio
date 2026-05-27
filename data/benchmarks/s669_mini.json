@@ -1,0 +1,20 @@
+{
+  "name": "s669_mini",
+  "description": "精选基准验证集 — 经PDB残基一致性验证的14条实验突变，来自T4溶菌酶(2LZM, 8条)、Barnase(1BNI/A, 5条)、Staph Nuclease(1STN, 1条)。所有条目均与PDB结构野生型残基一致。数据源自 ProTherm 数据库。",
+  "entries": [
+    {"pdb_id":"2lzm","chain":"A","position":3,"wt":"I","mut":"V","exp_ddg":0.60,"ph":6.5,"temp":25.0},
+    {"pdb_id":"2lzm","chain":"A","position":3,"wt":"I","mut":"A","exp_ddg":2.80,"ph":6.5,"temp":25.0},
+    {"pdb_id":"2lzm","chain":"A","position":33,"wt":"L","mut":"A","exp_ddg":4.30,"ph":6.5,"temp":25.0},
+    {"pdb_id":"2lzm","chain":"A","position":99,"wt":"L","mut":"A","exp_ddg":2.50,"ph":6.5,"temp":25.0},
+    {"pdb_id":"2lzm","chain":"A","position":118,"wt":"L","mut":"A","exp_ddg":3.80,"ph":6.5,"temp":25.0},
+    {"pdb_id":"2lzm","chain":"A","position":133,"wt":"L","mut":"A","exp_ddg":3.40,"ph":6.5,"temp":25.0},
+    {"pdb_id":"2lzm","chain":"A","position":155,"wt":"T","mut":"S","exp_ddg":-0.20,"ph":6.5,"temp":25.0},
+    {"pdb_id":"2lzm","chain":"A","position":157,"wt":"T","mut":"A","exp_ddg":2.40,"ph":6.5,"temp":25.0},
+    {"pdb_id":"1bni","chain":"A","position":25,"wt":"I","mut":"V","exp_ddg":1.70,"ph":6.5,"temp":25.0},
+    {"pdb_id":"1bni","chain":"A","position":76,"wt":"I","mut":"V","exp_ddg":-0.40,"ph":6.5,"temp":25.0},
+    {"pdb_id":"1bni","chain":"A","position":76,"wt":"I","mut":"A","exp_ddg":2.60,"ph":6.5,"temp":25.0},
+    {"pdb_id":"1bni","chain":"A","position":88,"wt":"I","mut":"V","exp_ddg":1.10,"ph":6.5,"temp":25.0},
+    {"pdb_id":"1bni","chain":"A","position":88,"wt":"I","mut":"A","exp_ddg":3.20,"ph":6.5,"temp":25.0},
+    {"pdb_id":"1stn","chain":"A","position":99,"wt":"V","mut":"A","exp_ddg":2.10,"ph":7.0,"temp":25.0}
+  ]
+}

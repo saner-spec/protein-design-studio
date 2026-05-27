@@ -1,0 +1,10 @@
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+biopython>=1.83
+httpx>=0.26.0
+pydantic>=2.0.0
+
+# 需单独安装 (不在PyPI标准索引):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   pip install fair-esm
+# 详见 README
